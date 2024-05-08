@@ -19,23 +19,23 @@ import submitit
 def parse_args():
     trainer_parser = trainer.get_args_parser()
     parser = argparse.ArgumentParser("Submitit for MAE pretrain", parents=[trainer_parser])
-    parser.add_argument("--ngpus", default=8, type=int, help="Number of gpus to request on each node")
-    parser.add_argument("--nodes", default=2, type=int, help="Number of nodes to request")
+    # parser.add_argument("--ngpus", default=1, type=int, help="Number of gpus to request on each node")
+    # parser.add_argument("--nodes", default=1, type=int, help="Number of nodes to request")
     parser.add_argument("--timeout", default=4320, type=int, help="Duration of the job")
     parser.add_argument("--job_dir", default="", type=str, help="Job dir. Leave empty for automatic.")
 
-    parser.add_argument("--partition", default="learnfair", type=str, help="Partition where to submit")
-    parser.add_argument("--use_volta32", action='store_true', help="Request 32G V100 GPUs")
-    parser.add_argument('--comment', default="", type=str, help="Comment to pass to scheduler")
+    # parser.add_argument("--partition", default="learnfair", type=str, help="Partition where to submit")
+    # parser.add_argument("--use_volta32", action='store_true', help="Request 32G V100 GPUs")
+    # parser.add_argument('--comment', default="", type=str, help="Comment to pass to scheduler")
     return parser.parse_args()
 
 
 def get_shared_folder() -> Path:
     user = os.getenv("USER")
-    if Path("/checkpoint/").is_dir():
-        p = Path(f"/checkpoint/{user}/experiments")
+    if Path("./checkpoint/").is_dir():
+        p = Path(f"./checkpoint/{user}/experiments")
         p.mkdir(exist_ok=True)
-        return p
+        return p.absolute()
     raise RuntimeError("No shared folder available")
 
 
@@ -91,28 +91,28 @@ def main():
     # Note that the folder will depend on the job_id, to easily track experiments
     executor = submitit.AutoExecutor(folder=args.job_dir, slurm_max_num_timeout=30)
 
-    num_gpus_per_node = args.ngpus
-    nodes = args.nodes
+    # num_gpus_per_node = args.ngpus
+    # nodes = args.nodes
     timeout_min = args.timeout
 
-    partition = args.partition
-    kwargs = {}
-    if args.use_volta32:
-        kwargs['slurm_constraint'] = 'volta32gb'
-    if args.comment:
-        kwargs['slurm_comment'] = args.comment
+    # partition = args.partition
+    # kwargs = {}
+    # if args.use_volta32:
+    #     kwargs['slurm_constraint'] = 'volta32gb'
+    # if args.comment:
+    #     kwargs['slurm_comment'] = args.comment
 
     executor.update_parameters(
-        mem_gb=40 * num_gpus_per_node,
-        gpus_per_node=num_gpus_per_node,
-        tasks_per_node=num_gpus_per_node,  # one task per GPU
+        mem_gb=40,
+        gpus_per_node=2,
+        tasks_per_node=1,  # one task per GPU
         cpus_per_task=10,
-        nodes=nodes,
+        nodes=1,
         timeout_min=timeout_min,  # max is 60 * 72
         # Below are cluster dependent parameters
-        slurm_partition=partition,
-        slurm_signal_delay_s=120,
-        **kwargs
+        # slurm_partition=partition,
+        # slurm_signal_delay_s=120,
+        # **kwargs
     )
 
     executor.update_parameters(name="mae")

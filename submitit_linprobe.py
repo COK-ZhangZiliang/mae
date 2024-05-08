@@ -19,8 +19,8 @@ import submitit
 def parse_args():
     classification_parser = classification.get_args_parser()
     parser = argparse.ArgumentParser("Submitit for MAE linear probe", parents=[classification_parser])
-    parser.add_argument("--ngpus", default=8, type=int, help="Number of gpus to request on each node")
-    parser.add_argument("--nodes", default=2, type=int, help="Number of nodes to request")
+    parser.add_argument("--ngpus", default=1, type=int, help="Number of gpus to request on each node")
+    parser.add_argument("--nodes", default=1, type=int, help="Number of nodes to request")
     parser.add_argument("--timeout", default=4320, type=int, help="Duration of the job")
     parser.add_argument("--job_dir", default="", type=str, help="Job dir. Leave empty for automatic.")
 
@@ -32,10 +32,10 @@ def parse_args():
 
 def get_shared_folder() -> Path:
     user = os.getenv("USER")
-    if Path("/checkpoint/").is_dir():
-        p = Path(f"/checkpoint/{user}/experiments")
+    if Path("./checkpoint/").is_dir():
+        p = Path(f"./checkpoint/{user}/experiments")
         p.mkdir(exist_ok=True)
-        return p
+        return p.absolute()
     raise RuntimeError("No shared folder available")
 
 
@@ -49,14 +49,16 @@ def get_init_file():
 
 
 class Trainer(object):
-    def __init__(self, args):
+    def __init__(self, args, rate, dataset):
         self.args = args
+        self.rate = rate
+        self.dataset = dataset
 
     def __call__(self):
         import main_linprobe as classification
 
         self._setup_gpu_args()
-        classification.main(self.args)
+        classification.main(self.args, self.rate, self.dataset)
 
     def checkpoint(self):
         import os
@@ -120,11 +122,13 @@ def main():
     args.dist_url = get_init_file().as_uri()
     args.output_dir = args.job_dir
 
-    trainer = Trainer(args)
-    job = executor.submit(trainer)
-
-    # print("Submitted job_id:", job.job_id)
-    print(job.job_id)
+    sample_rate = [1, 5, 10, 15, 20, 25, 30]
+    dataset = 'H_V'
+    for rate in sample_rate:
+        trainer = Trainer(args, rate, dataset)
+        job = executor.submit(trainer)
+        # print("Submitted job_id:", job.job_id)
+        print(job.job_id)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,14 @@
 # DeiT: https://github.com/facebookresearch/deit
 # MoCo v3: https://github.com/facebookresearch/moco-v3
 # --------------------------------------------------------
+import sys
+sys.path.append('/home/zhangziliang/netflow_cls/')
+
+import DFNet.DFNet_DoH.DF_cls as doh
+import DFNet.DFNet_H_V.DF_cls as hv
+import DFNet.DFNet_CTU.DF_cls as ctu
+
+from sklearn.model_selection import train_test_split
 
 import argparse
 import datetime
@@ -41,14 +49,14 @@ from engine_finetune import train_one_epoch, evaluate
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE linear probing for image classification', add_help=False)
-    parser.add_argument('--batch_size', default=512, type=int,
+    parser.add_argument('--batch_size', default=1024, type=int,
                         help='Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus')
-    parser.add_argument('--epochs', default=90, type=int)
+    parser.add_argument('--epochs', default=40, type=int)
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
 
     # Model parameters
-    parser.add_argument('--model', default='vit_large_patch16', type=str, metavar='MODEL',
+    parser.add_argument('--model', default='vit_base_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
 
     # Optimizer parameters
@@ -63,21 +71,21 @@ def get_args_parser():
     parser.add_argument('--min_lr', type=float, default=0., metavar='LR',
                         help='lower lr bound for cyclic schedulers that hit 0')
 
-    parser.add_argument('--warmup_epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--warmup_epochs', type=int, default=4, metavar='N',
                         help='epochs to warmup LR')
 
     # * Finetuning params
-    parser.add_argument('--finetune', default='',
+    parser.add_argument('--finetune', default='./checkpoint/zhangziliang/experiments/780540/checkpoint-60.pth',
                         help='finetune from checkpoint')
     parser.add_argument('--global_pool', action='store_true')
-    parser.set_defaults(global_pool=False)
+    parser.set_defaults(global_pool=True)
     parser.add_argument('--cls_token', action='store_false', dest='global_pool',
                         help='Use class token instead of global pool for classification')
 
     # Dataset parameters
     parser.add_argument('--data_path', default='/datasets01/imagenet_full_size/061417/', type=str,
                         help='dataset path')
-    parser.add_argument('--nb_classes', default=1000, type=int,
+    parser.add_argument('--nb_classes', default=2, type=int,
                         help='number of the classification types')
 
     parser.add_argument('--output_dir', default='./output_dir',
@@ -113,7 +121,8 @@ def get_args_parser():
     return parser
 
 
-def main(args):
+def main(args, rate, dataset='DoH'):
+    print(dataset, rate)
     misc.init_distributed_mode(args)
 
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
@@ -129,18 +138,29 @@ def main(args):
     cudnn.benchmark = True
 
     # linear probe: weak augmentation
-    transform_train = transforms.Compose([
-            RandomResizedCrop(224, interpolation=3),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-    transform_val = transforms.Compose([
-            transforms.Resize(256, interpolation=3),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-    dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
-    dataset_val = datasets.ImageFolder(os.path.join(args.data_path, 'val'), transform=transform_val)
+    # transform_train = transforms.Compose([
+    #         RandomResizedCrop(224, interpolation=3),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+    # transform_val = transforms.Compose([
+    #         transforms.Resize(256, interpolation=3),
+    #         transforms.CenterCrop(224),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+    # dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
+    # dataset_val = datasets.ImageFolder(os.path.join(args.data_path, 'val'), transform=transform_val)
+    if dataset == 'DoH':
+        data_for_cls, label_for_cls = doh.load_and_transform_data(f'../datasets/DoH/traces2/bng_{rate}.csv',
+                                                            f'../datasets/DoH/traces2/mal_{rate}.csv')
+    elif dataset == 'H_V':
+        data_for_cls, label_for_cls = hv.load_and_transform_data(f'../datasets/H_V/traces/traces_{rate}.csv',)
+    elif dataset == 'CTU-13':
+        data_for_cls, label_for_cls = ctu.load_and_transform_data(f'../datasets/CTU-13-Dataset/{rate}/traces.csv')
+    train_data, test_data, train_label, test_label \
+            = train_test_split(data_for_cls, label_for_cls, test_size=0.2, random_state=42)
+    dataset_train = torch.utils.data.TensorDataset(train_data, train_label)
+    dataset_val = torch.utils.data.TensorDataset(test_data, test_label)
     print(dataset_train)
     print(dataset_val)
 
@@ -277,10 +297,10 @@ def main(args):
             log_writer=log_writer,
             args=args
         )
-        if args.output_dir:
-            misc.save_model(
-                args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                loss_scaler=loss_scaler, epoch=epoch)
+        # if args.output_dir:
+        #     misc.save_model(
+        #         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+        #         loss_scaler=loss_scaler, epoch=epoch)
 
         test_stats = evaluate(data_loader_val, model, device)
         print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
@@ -289,7 +309,7 @@ def main(args):
 
         if log_writer is not None:
             log_writer.add_scalar('perf/test_acc1', test_stats['acc1'], epoch)
-            log_writer.add_scalar('perf/test_acc5', test_stats['acc5'], epoch)
+            # log_writer.add_scalar('perf/test_acc5', test_stats['acc5'], epoch)
             log_writer.add_scalar('perf/test_loss', test_stats['loss'], epoch)
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
@@ -313,4 +333,6 @@ if __name__ == '__main__':
     args = args.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    main(args)
+    sample_rate = [1, 5, 10, 15, 20, 25, 30]
+    for rate in sample_rate:
+        main(args, rate)
